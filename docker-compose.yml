@@ -1,0 +1,88 @@
+version: "3.9"
+
+services:
+  # ═══════════════════════════════════════════
+  # قاعدة بيانات PostgreSQL
+  # ═══════════════════════════════════════════
+  postgres:
+    image: postgres:16-alpine
+    container_name: bot_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bot_network
+
+  # ═══════════════════════════════════════════
+  # Redis
+  # ═══════════════════════════════════════════
+  redis:
+    image: redis:7-alpine
+    container_name: bot_redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bot_network
+
+  # ═══════════════════════════════════════════
+  # البوت
+  # ═══════════════════════════════════════════
+  bot:
+    build: .
+    container_name: bot_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # تجاوز host لاستخدام أسماء الخدمات داخل شبكة Docker
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    volumes:
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+      - ./bot.session:/app/bot.session
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bot_network
+
+# ═══════════════════════════════════════════
+# الأقراص الدائمة (Volumes)
+# ═══════════════════════════════════════════
+volumes:
+  postgres_data:
+  redis_data:
+
+# ═══════════════════════════════════════════
+# الشبكة الداخلية
+# ═══════════════════════════════════════════
+networks:
+  bot_network:
+    driver: bridge
